@@ -11,7 +11,8 @@ use ratatui::{
     symbols,
     text::Span,
     widgets::{
-        Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, Row, Table,
+        Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, Padding, Row,
+        Table,
     },
     DefaultTerminal, Frame,
 };
@@ -269,7 +270,7 @@ impl App {
 
     fn draw(&self, frame: &mut Frame) {
         let [top, bottom] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(8)])
+            Layout::vertical([Constraint::Fill(1), Constraint::Length(9)])
                 .areas(frame.area());
 
         let [bottom_left, bottom_right] =
@@ -278,10 +279,10 @@ impl App {
 
         let [bottom_left_1, bottom_left_2, bottom_left_3, bottom_left_4] =
             Layout::vertical([
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
-                Constraint::Percentage(25),
+                Constraint::Length(2),
+                Constraint::Length(2),
+                Constraint::Length(2),
+                Constraint::Length(3),
             ])
             .areas(bottom_left);
 
@@ -290,12 +291,12 @@ impl App {
 
         let c1 = self.coolant1.last().unwrap().1;
         let b1 = Block::default()
-            .borders(Borders::TOP)
-            .title(COOLANT_1_LABEL);
+            .borders(Borders::LEFT | Borders::RIGHT)
+            .padding(Padding::new(0, 0, 1, 0));
 
         let c2 = self.coolant1.last().unwrap().1;
         let b2 = Block::default()
-            .borders(Borders::TOP)
+            .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
             .title(COOLANT_2_LABEL);
 
         self.render_coolant_gauge(c1, b1, frame, bottom_left_1);
@@ -308,6 +309,10 @@ impl App {
             frame,
             bottom_left_4,
         );
+
+        // enclosing border for bottom left gauges
+        let b = Block::bordered().title(COOLANT_1_LABEL);
+        frame.render_widget(b, bottom_left);
     }
 
     fn render_coolant_gauge(
@@ -348,7 +353,7 @@ impl App {
         let g1 = Gauge::default()
             .block(
                 Block::default()
-                    .borders(Borders::TOP)
+                    .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
                     .title("RTX 4070 Power"),
             )
             .gauge_style(Color::Blue)
@@ -375,11 +380,7 @@ impl App {
         );
 
         let g1 = Gauge::default()
-            .block(
-                Block::default()
-                    .borders(Borders::TOP)
-                    .title("RTX 4070 Memory"),
-            )
+            .block(Block::bordered().title("RTX 4070 Memory"))
             .gauge_style(Color::Yellow)
             .ratio((used as f64 / total as f64).clamp(0.0, 1.0))
             .label(label);
