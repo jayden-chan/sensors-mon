@@ -2,6 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use lm_sensors::{Initializer, LMSensors};
+use num_format::{Locale, ToFormattedString};
 use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, Nvml};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode},
@@ -17,6 +18,8 @@ use ratatui::{
 
 const INTERVAL: u64 = 2000;
 const WINDOW_SIZE: u64 = (5 * 60) / (INTERVAL / 1000);
+
+const B_TO_MIB: u64 = 1024 * 1024;
 
 const CPU_CTL_LABEL: &str = "7800 X3D CTL";
 const CPU_CCD_LABEL: &str = "7800 X3D CCD";
@@ -36,25 +39,36 @@ struct LmSensorsValues {
 struct NvmlValues {
     temp: f64,
     watts: f64,
+    mem_used: u64,
+    mem_total: u64,
 }
 
 fn get_nvml_values(nvml: &Nvml) -> NvmlValues {
-    let mut temp: u32 = 0;
-    let mut milliwatts: u32 = 0;
+    let mut temp: f64 = 0.0;
+    let mut watts: f64 = 0.0;
+    let mut mem_used: u64 = 0;
+    let mut mem_total: u64 = 0;
 
     if let Ok(device) = nvml.device_by_index(0) {
-        if let Ok(t) = device.temperature(TemperatureSensor::Gpu) {
-            temp = t;
+        if let Ok(c) = device.temperature(TemperatureSensor::Gpu) {
+            temp = c as f64;
         }
 
-        if let Ok(p) = device.power_usage() {
-            milliwatts = p;
+        if let Ok(mw) = device.power_usage() {
+            watts = mw as f64 / 1000.0;
+        }
+
+        if let Ok(mem_info) = device.memory_info() {
+            mem_used = mem_info.used / B_TO_MIB;
+            mem_total = mem_info.total / B_TO_MIB;
         }
     }
 
     NvmlValues {
-        temp: temp as f64,
-        watts: milliwatts as f64 / 1000.0,
+        temp,
+        watts,
+        mem_used,
+        mem_total,
     }
 }
 
@@ -126,6 +140,8 @@ struct App {
     gpu_temp: Vec<(f64, f64)>,
     gpu_temp_mm: (f64, f64),
     gpu_w: f64,
+    gpu_mem_used: u64,
+    gpu_mem_max: u64,
     window: [f64; 2],
 }
 
@@ -175,6 +191,8 @@ impl App {
             gpu_temp: gpu,
             gpu_temp_mm: (gpu_temp, gpu_temp),
             gpu_w: nvml_values.watts,
+            gpu_mem_used: nvml_values.mem_used,
+            gpu_mem_max: nvml_values.mem_total,
             window: [0.0, WINDOW_SIZE as f64],
         }
     }
@@ -222,6 +240,8 @@ impl App {
         self.gpu_temp.push((w, nvml_vals.temp));
 
         self.gpu_w = nvml_vals.watts;
+        self.gpu_mem_used = nvml_vals.mem_used;
+        self.gpu_mem_max = nvml_vals.mem_total;
 
         if vals.tctl < self.tctl_mm.0 {
             self.tctl_mm.0 = vals.tctl
@@ -264,12 +284,14 @@ impl App {
             Layout::horizontal([Constraint::Fill(1), Constraint::Length(34)])
                 .areas(bottom);
 
-        let [bottom_left_1, bottom_left_2, bottom_left_3] = Layout::vertical([
-            Constraint::Length(2),
-            Constraint::Length(2),
-            Constraint::Length(2),
-        ])
-        .areas(bottom_left);
+        let [bottom_left_1, bottom_left_2, bottom_left_3, bottom_left_4] =
+            Layout::vertical([
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+            ])
+            .areas(bottom_left);
 
         self.render_temps_chart(frame, top);
         self.render_temps_table(frame, bottom_right);
@@ -284,13 +306,19 @@ impl App {
             .borders(Borders::TOP)
             .title(COOLANT_2_LABEL);
 
-        self.render_coolant_guage(c1, b1, frame, bottom_left_1);
-        self.render_coolant_guage(c2, b2, frame, bottom_left_2);
+        self.render_coolant_gauge(c1, b1, frame, bottom_left_1);
+        self.render_coolant_gauge(c2, b2, frame, bottom_left_2);
 
-        self.render_gpu_watts_guage(self.gpu_w, frame, bottom_left_3);
+        self.render_gpu_watts_gauge(self.gpu_w, frame, bottom_left_3);
+        self.render_gpu_mem_gauge(
+            self.gpu_mem_used,
+            self.gpu_mem_max,
+            frame,
+            bottom_left_4,
+        );
     }
 
-    fn render_coolant_guage(
+    fn render_coolant_gauge(
         &self,
         val: f64,
         block: Block,
@@ -319,7 +347,7 @@ impl App {
         frame.render_widget(g1, area);
     }
 
-    fn render_gpu_watts_guage(&self, val: f64, frame: &mut Frame, area: Rect) {
+    fn render_gpu_watts_gauge(&self, val: f64, frame: &mut Frame, area: Rect) {
         let label = Span::styled(
             format!("{:.1}W / 200W", val),
             Style::new().bold().fg(Color::Gray).bg(Color::Black),
@@ -329,10 +357,39 @@ impl App {
             .block(
                 Block::default()
                     .borders(Borders::TOP)
-                    .title("RTX 4070 Power Usage"),
+                    .title("RTX 4070 Power"),
             )
             .gauge_style(Color::Blue)
             .ratio((val / 200.0).clamp(0.0, 1.0))
+            .label(label);
+
+        frame.render_widget(g1, area);
+    }
+
+    fn render_gpu_mem_gauge(
+        &self,
+        used: u64,
+        total: u64,
+        frame: &mut Frame,
+        area: Rect,
+    ) {
+        let label = Span::styled(
+            format!(
+                "{}MiB / {}MiB",
+                used.to_formatted_string(&Locale::en),
+                total.to_formatted_string(&Locale::en)
+            ),
+            Style::new().bold().fg(Color::Gray).bg(Color::Black),
+        );
+
+        let g1 = Gauge::default()
+            .block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .title("RTX 4070 Memory"),
+            )
+            .gauge_style(Color::Yellow)
+            .ratio((used as f64 / total as f64).clamp(0.0, 1.0))
             .label(label);
 
         frame.render_widget(g1, area);

@@ -12,6 +12,7 @@ codegen-units = 1
 [dependencies]
 anyhow = "1.0.87"
 lm-sensors = "0.3.1"
+num-format = "0.4.4"
 nvml-wrapper = "0.10.0"
 pico-args = "0.5.0"
 ratatui = "0.28.0"
