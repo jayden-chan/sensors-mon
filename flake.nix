@@ -1,10 +1,18 @@
 {
-  description = "TUI program for monitoring sensor values from lm-sensors";
+  description = "TUI program for monitoring sensor values from lm-sensors and NVML";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    devenv.url = "github:cachix/devenv";
     crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
+    fenix.url = "github:nix-community/fenix";
+    fenix.inputs.nixpkgs.follows = "nixpkgs";
+  };
+
+  nixConfig = {
+    extra-trusted-public-keys = "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
+    extra-substituters = "https://devenv.cachix.org";
   };
 
   outputs =
@@ -13,8 +21,9 @@
       nixpkgs,
       crane,
       flake-utils,
+      devenv,
       ...
-    }:
+    }@inputs:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
@@ -32,29 +41,53 @@
             name = "source";
           };
 
-          preConfigurePhases = [ "env" ];
-          env = ''export LMSENSORS_STATIC=1'';
-
           strictDeps = true;
           buildInputs = [ ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
         };
 
-        lm-sensors-mon = craneLib.buildPackage (
+        sensors-mon = craneLib.buildPackage (
           commonArgs // { cargoArtifacts = craneLib.buildDepsOnly commonArgs; }
         );
       in
       {
         checks = {
-          inherit lm-sensors-mon;
+          inherit sensors-mon;
         };
 
-        packages.default = lm-sensors-mon;
+        packages.devenv-up = self.devShells.${system}.default.config.procfileScript;
+        packages.devenv-test = self.devShells.${system}.default.config.test;
 
-        apps.default = flake-utils.lib.mkApp { drv = lm-sensors-mon; };
+        packages.default = sensors-mon;
 
-        devShells.default = craneLib.devShell {
-          checks = self.checks.${system};
-          packages = [ ];
+        apps.default = flake-utils.lib.mkApp { drv = sensors-mon; };
+
+        devShells.default = devenv.lib.mkShell {
+          inherit inputs pkgs;
+          modules = [
+            (
+              { pkgs, config, ... }:
+              {
+                packages = [ pkgs.lm_sensors ];
+
+                env = {
+                  LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+                  LMSENSORS_LIB_DIR = "${pkgs.lm_sensors}/lib";
+                };
+
+                languages.rust.enable = true;
+                languages.rust.channel = "stable";
+
+                enterShell = ''
+                  export BINDGEN_EXTRA_CLANG_ARGS="$(< ${pkgs.stdenv.cc}/nix-support/libc-crt1-cflags) \
+                    $(< ${pkgs.stdenv.cc}/nix-support/libc-cflags) \
+                    $(< ${pkgs.stdenv.cc}/nix-support/cc-cflags) \
+                    $(< ${pkgs.stdenv.cc}/nix-support/libcxx-cxxflags) \
+                    ${pkgs.lib.optionalString pkgs.stdenv.cc.isClang "-idirafter ${pkgs.stdenv.cc.cc}/lib/clang/${pkgs.lib.getVersion pkgs.stdenv.cc.cc}/include"} \
+                    ${pkgs.lib.optionalString pkgs.stdenv.cc.isGNU "-isystem ${pkgs.stdenv.cc.cc}/include/c++/${pkgs.lib.getVersion pkgs.stdenv.cc.cc} -isystem ${pkgs.stdenv.cc.cc}/include/c++/${pkgs.lib.getVersion pkgs.stdenv.cc.cc}/${pkgs.stdenv.hostPlatform.config} -idirafter ${pkgs.stdenv.cc.cc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${pkgs.lib.getVersion pkgs.stdenv.cc.cc}/include"}"
+                '';
+              }
+            )
+          ];
         };
       }
     );

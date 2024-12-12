@@ -1,5 +1,5 @@
 USAGE:
-  lm-sensors-mon <SUBCOMMAND>
+  sensors-mon <SUBCOMMAND>
 
 FLAGS:
   -h, --help            Prints help information
