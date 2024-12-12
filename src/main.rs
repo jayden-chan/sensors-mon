@@ -2,13 +2,16 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use lm_sensors::{Initializer, LMSensors};
+use nvml_wrapper::{enum_wrappers::device::TemperatureSensor, Nvml};
 use ratatui::{
     crossterm::event::{self, Event, KeyCode},
     layout::{Constraint, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     symbols,
     text::Span,
-    widgets::{Axis, Block, Chart, Dataset, Gauge, GraphType, Row, Table},
+    widgets::{
+        Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, Row, Table,
+    },
     DefaultTerminal, Frame,
 };
 
@@ -22,20 +25,44 @@ const COOLANT_2_LABEL: &str = "Coolant 2";
 const GPU_LABEL: &str = "RTX 4070";
 
 #[derive(Debug)]
-struct SensorValues {
+struct LmSensorsValues {
     tctl: f64,
     tccd1: f64,
     coolant1: f64,
     coolant2: f64,
-    gpu: f64,
 }
 
-fn get_sensor_values(sensors: &LMSensors) -> SensorValues {
+#[derive(Debug)]
+struct NvmlValues {
+    temp: f64,
+    watts: f64,
+}
+
+fn get_nvml_values(nvml: &Nvml) -> NvmlValues {
+    let mut temp: u32 = 0;
+    let mut milliwatts: u32 = 0;
+
+    if let Ok(device) = nvml.device_by_index(0) {
+        if let Ok(t) = device.temperature(TemperatureSensor::Gpu) {
+            temp = t;
+        }
+
+        if let Ok(p) = device.power_usage() {
+            milliwatts = p;
+        }
+    }
+
+    NvmlValues {
+        temp: temp as f64,
+        watts: milliwatts as f64 / 1000.0,
+    }
+}
+
+fn get_lmsensors_vals(sensors: &LMSensors) -> LmSensorsValues {
     let mut tctl: f64 = 0.0;
     let mut tccd1: f64 = 0.0;
     let mut coolant1: f64 = 0.0;
     let mut coolant2: f64 = 0.0;
-    let gpu: f64 = 0.0;
 
     for chip in sensors.chip_iter(None) {
         if let cname @ ("quadro-hid-3-1" | "k10temp-pci-00c3") =
@@ -70,12 +97,11 @@ fn get_sensor_values(sensors: &LMSensors) -> SensorValues {
         }
     }
 
-    SensorValues {
+    LmSensorsValues {
         tctl,
         tccd1,
         coolant1,
         coolant2,
-        gpu,
     }
 }
 
@@ -88,6 +114,7 @@ fn main() -> Result<()> {
 
 struct App {
     sensors: LMSensors,
+    nvml: Nvml,
     tctl: Vec<(f64, f64)>,
     tctl_mm: (f64, f64),
     tccd1: Vec<(f64, f64)>,
@@ -96,8 +123,9 @@ struct App {
     coolant1_mm: (f64, f64),
     coolant2: Vec<(f64, f64)>,
     coolant2_mm: (f64, f64),
-    gpu: Vec<(f64, f64)>,
-    gpu_mm: (f64, f64),
+    gpu_temp: Vec<(f64, f64)>,
+    gpu_temp_mm: (f64, f64),
+    gpu_w: f64,
     window: [f64; 2],
 }
 
@@ -106,6 +134,8 @@ impl App {
         let sensors: LMSensors = Initializer::default()
             .initialize()
             .expect("Failed to init lm-sensors");
+
+        let nvml = Nvml::init().expect("Failed to initialize NVML");
 
         let mut tctl = Vec::with_capacity(WINDOW_SIZE as usize);
         let mut tccd1 = Vec::with_capacity(WINDOW_SIZE as usize);
@@ -121,15 +151,19 @@ impl App {
             gpu.push((i as f64, 0.0));
         }
 
-        let values = get_sensor_values(&sensors);
+        let values = get_lmsensors_vals(&sensors);
         tctl.push(((WINDOW_SIZE - 1) as f64, values.tctl));
         tccd1.push(((WINDOW_SIZE - 1) as f64, values.tccd1));
         coolant1.push(((WINDOW_SIZE - 1) as f64, values.coolant1));
         coolant2.push(((WINDOW_SIZE - 1) as f64, values.coolant2));
-        gpu.push(((WINDOW_SIZE - 1) as f64, values.gpu));
+
+        let nvml_values = get_nvml_values(&nvml);
+        let gpu_temp = nvml_values.temp;
+        gpu.push(((WINDOW_SIZE - 1) as f64, gpu_temp));
 
         Self {
             sensors,
+            nvml,
             tctl,
             tctl_mm: (values.tctl, values.tctl),
             tccd1,
@@ -138,8 +172,9 @@ impl App {
             coolant1_mm: (values.coolant1, values.coolant1),
             coolant2,
             coolant2_mm: (values.coolant2, values.coolant2),
-            gpu,
-            gpu_mm: (values.gpu, values.gpu),
+            gpu_temp: gpu,
+            gpu_temp_mm: (gpu_temp, gpu_temp),
+            gpu_w: nvml_values.watts,
             window: [0.0, WINDOW_SIZE as f64],
         }
     }
@@ -166,7 +201,8 @@ impl App {
     }
 
     fn on_tick(&mut self) {
-        let vals = get_sensor_values(&self.sensors);
+        let vals = get_lmsensors_vals(&self.sensors);
+        let nvml_vals = get_nvml_values(&self.nvml);
 
         self.window[0] += 1.0;
         self.window[1] += 1.0;
@@ -177,13 +213,15 @@ impl App {
         self.tccd1.remove(0);
         self.coolant1.remove(0);
         self.coolant2.remove(0);
-        self.gpu.remove(0);
+        self.gpu_temp.remove(0);
 
         self.tctl.push((w, vals.tctl));
         self.tccd1.push((w, vals.tccd1));
         self.coolant1.push((w, vals.coolant1));
         self.coolant2.push((w, vals.coolant2));
-        self.gpu.push((w, vals.gpu));
+        self.gpu_temp.push((w, nvml_vals.temp));
+
+        self.gpu_w = nvml_vals.watts;
 
         if vals.tctl < self.tctl_mm.0 {
             self.tctl_mm.0 = vals.tctl
@@ -209,11 +247,11 @@ impl App {
         if vals.coolant2 > self.coolant2_mm.1 {
             self.coolant2_mm.1 = vals.coolant2
         }
-        if vals.gpu < self.gpu_mm.0 {
-            self.gpu_mm.0 = vals.gpu
+        if nvml_vals.temp < self.gpu_temp_mm.0 {
+            self.gpu_temp_mm.0 = nvml_vals.temp
         }
-        if vals.gpu > self.gpu_mm.1 {
-            self.gpu_mm.1 = vals.gpu
+        if nvml_vals.temp > self.gpu_temp_mm.1 {
+            self.gpu_temp_mm.1 = nvml_vals.temp
         }
     }
 
@@ -226,9 +264,10 @@ impl App {
             Layout::horizontal([Constraint::Fill(1), Constraint::Length(34)])
                 .areas(bottom);
 
-        let [bottom_left_top, bottom_left_bottom] = Layout::vertical([
-            Constraint::Percentage(50),
-            Constraint::Percentage(50),
+        let [bottom_left_1, bottom_left_2, bottom_left_3] = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Length(2),
         ])
         .areas(bottom_left);
 
@@ -236,11 +275,19 @@ impl App {
         self.render_temps_table(frame, bottom_right);
 
         let c1 = self.coolant1.last().unwrap().1;
-        let b1 = Block::bordered().title("Coolant 1");
+        let b1 = Block::default()
+            .borders(Borders::TOP)
+            .title(COOLANT_1_LABEL);
+
         let c2 = self.coolant1.last().unwrap().1;
-        let b2 = Block::bordered().title("Coolant 2");
-        self.render_coolant_guage(c1, b1, frame, bottom_left_top);
-        self.render_coolant_guage(c2, b2, frame, bottom_left_bottom);
+        let b2 = Block::default()
+            .borders(Borders::TOP)
+            .title(COOLANT_2_LABEL);
+
+        self.render_coolant_guage(c1, b1, frame, bottom_left_1);
+        self.render_coolant_guage(c2, b2, frame, bottom_left_2);
+
+        self.render_gpu_watts_guage(self.gpu_w, frame, bottom_left_3);
     }
 
     fn render_coolant_guage(
@@ -272,6 +319,25 @@ impl App {
         frame.render_widget(g1, area);
     }
 
+    fn render_gpu_watts_guage(&self, val: f64, frame: &mut Frame, area: Rect) {
+        let label = Span::styled(
+            format!("{:.1}W / 200W", val),
+            Style::new().bold().fg(Color::Gray).bg(Color::Black),
+        );
+
+        let g1 = Gauge::default()
+            .block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .title("RTX 4070 Power Usage"),
+            )
+            .gauge_style(Color::Blue)
+            .ratio((val / 200.0).clamp(0.0, 1.0))
+            .label(label);
+
+        frame.render_widget(g1, area);
+    }
+
     fn render_temps_table(&self, frame: &mut Frame, area: Rect) {
         let ctl1 = format!("{:.1}", self.tctl.last().unwrap().1);
         let ctl2 = format!("{:.1}", self.tctl_mm.0);
@@ -289,9 +355,9 @@ impl App {
         let cool2_2 = format!("{:.1}", self.coolant2_mm.0);
         let cool2_3 = format!("{:.1}", self.coolant2_mm.1);
 
-        let gpu1 = format!("{:.1}", self.gpu.last().unwrap().1);
-        let gpu2 = format!("{:.1}", self.gpu_mm.0);
-        let gpu3 = format!("{:.1}", self.gpu_mm.1);
+        let gpu1 = format!("{:.1}", self.gpu_temp.last().unwrap().1);
+        let gpu2 = format!("{:.1}", self.gpu_temp_mm.0);
+        let gpu3 = format!("{:.1}", self.gpu_temp_mm.1);
 
         let rows = [
             Row::new(vec![CPU_CTL_LABEL, &ctl1, &ctl2, &ctl3]),
@@ -342,12 +408,12 @@ impl App {
             Dataset::default()
                 .name(format!(
                     "{GPU_LABEL} ({:.1})",
-                    self.gpu.last().unwrap().1
+                    self.gpu_temp.last().unwrap().1
                 ))
                 .marker(symbols::Marker::Braille)
                 .graph_type(GraphType::Line)
                 .style(Style::default().fg(Color::Green))
-                .data(&self.gpu),
+                .data(&self.gpu_temp),
         ];
 
         let x_labels = vec![
