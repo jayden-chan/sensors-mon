@@ -131,11 +131,11 @@ struct App {
     nvml: Nvml,
     tctl: Vec<(f64, f64)>,
     tctl_mm: (f64, f64),
-    tccd1: Vec<(f64, f64)>,
+    tccd1: f64,
     tccd1_mm: (f64, f64),
     coolant1: Vec<(f64, f64)>,
     coolant1_mm: (f64, f64),
-    coolant2: Vec<(f64, f64)>,
+    coolant2: f64,
     coolant2_mm: (f64, f64),
     gpu_temp: Vec<(f64, f64)>,
     gpu_temp_mm: (f64, f64),
@@ -154,24 +154,18 @@ impl App {
         let nvml = Nvml::init().expect("Failed to initialize NVML");
 
         let mut tctl = Vec::with_capacity(WINDOW_SIZE as usize);
-        let mut tccd1 = Vec::with_capacity(WINDOW_SIZE as usize);
         let mut coolant1 = Vec::with_capacity(WINDOW_SIZE as usize);
-        let mut coolant2 = Vec::with_capacity(WINDOW_SIZE as usize);
         let mut gpu = Vec::with_capacity(WINDOW_SIZE as usize);
 
         for i in 0..(WINDOW_SIZE - 1) {
             tctl.push((i as f64, 0.0));
-            tccd1.push((i as f64, 0.0));
             coolant1.push((i as f64, 0.0));
-            coolant2.push((i as f64, 0.0));
             gpu.push((i as f64, 0.0));
         }
 
         let values = get_lmsensors_vals(&sensors);
         tctl.push(((WINDOW_SIZE - 1) as f64, values.tctl));
-        tccd1.push(((WINDOW_SIZE - 1) as f64, values.tccd1));
         coolant1.push(((WINDOW_SIZE - 1) as f64, values.coolant1));
-        coolant2.push(((WINDOW_SIZE - 1) as f64, values.coolant2));
 
         let nvml_values = get_nvml_values(&nvml);
         let gpu_temp = nvml_values.temp;
@@ -182,11 +176,11 @@ impl App {
             nvml,
             tctl,
             tctl_mm: (values.tctl, values.tctl),
-            tccd1,
+            tccd1: values.tccd1,
             tccd1_mm: (values.tccd1, values.tccd1),
             coolant1,
             coolant1_mm: (values.coolant1, values.coolant1),
-            coolant2,
+            coolant2: values.coolant2,
             coolant2_mm: (values.coolant2, values.coolant2),
             gpu_temp: gpu,
             gpu_temp_mm: (gpu_temp, gpu_temp),
@@ -228,17 +222,15 @@ impl App {
         let w = self.window[1];
 
         self.tctl.remove(0);
-        self.tccd1.remove(0);
         self.coolant1.remove(0);
-        self.coolant2.remove(0);
         self.gpu_temp.remove(0);
 
         self.tctl.push((w, vals.tctl));
-        self.tccd1.push((w, vals.tccd1));
         self.coolant1.push((w, vals.coolant1));
-        self.coolant2.push((w, vals.coolant2));
         self.gpu_temp.push((w, nvml_vals.temp));
 
+        self.tccd1 = vals.tccd1;
+        self.coolant2 = vals.coolant2;
         self.gpu_w = nvml_vals.watts;
         self.gpu_mem_used = nvml_vals.mem_used;
         self.gpu_mem_max = nvml_vals.mem_total;
@@ -400,7 +392,7 @@ impl App {
         let ctl2 = format!("{:.1}", self.tctl_mm.0);
         let ctl3 = format!("{:.1}", self.tctl_mm.1);
 
-        let ccd1 = format!("{:.1}", self.tccd1.last().unwrap().1);
+        let ccd1 = format!("{:.1}", self.tccd1);
         let ccd2 = format!("{:.1}", self.tccd1_mm.0);
         let ccd3 = format!("{:.1}", self.tccd1_mm.1);
 
@@ -408,7 +400,7 @@ impl App {
         let cool1_2 = format!("{:.1}", self.coolant1_mm.0);
         let cool1_3 = format!("{:.1}", self.coolant1_mm.1);
 
-        let cool2_1 = format!("{:.1}", self.coolant2.last().unwrap().1);
+        let cool2_1 = format!("{:.1}", self.coolant2);
         let cool2_2 = format!("{:.1}", self.coolant2_mm.0);
         let cool2_3 = format!("{:.1}", self.coolant2_mm.1);
 
