@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    cmp::Ordering,
+    time::{Duration, Instant},
+};
 
 use anyhow::Result;
 use lm_sensors::{Initializer, LMSensors};
@@ -19,6 +22,9 @@ use ratatui::{
 
 const INTERVAL: u64 = 2000;
 const WINDOW_SIZE: u64 = (5 * 60) / (INTERVAL / 1000);
+const BOUNDS_PADDING: f64 = 3.0;
+const BOUNDS_MIN: f64 = 25.0;
+const BOUNDS_MAX: f64 = 90.0;
 
 const B_TO_MIB: u64 = 1024 * 1024;
 
@@ -478,6 +484,41 @@ impl App {
             Span::styled("now", Style::default().add_modifier(Modifier::BOLD)),
         ];
 
+        let y_min = self
+            .tctl
+            .iter()
+            .zip(self.coolant1.iter())
+            .zip(self.gpu_temp.iter())
+            .map(|v| v.0 .0 .1.min(v.0 .1 .1).min(v.1 .1))
+            .min_by(|a, b| {
+                if a <= b {
+                    return Ordering::Less;
+                }
+                Ordering::Greater
+            })
+            .map(|v| (v - BOUNDS_PADDING).max(BOUNDS_MIN))
+            .unwrap_or(BOUNDS_MIN);
+
+        let y_max = self
+            .tctl
+            .iter()
+            .zip(self.coolant1.iter())
+            .zip(self.gpu_temp.iter())
+            .map(|v| v.0 .0 .1.max(v.0 .1 .1).max(v.1 .1))
+            .max_by(|a, b| {
+                if a <= b {
+                    return Ordering::Less;
+                }
+                Ordering::Greater
+            })
+            .map(|v| (v + BOUNDS_PADDING).min(BOUNDS_MAX))
+            .unwrap_or(BOUNDS_MAX);
+
+        let labels = (0..6).map(|i| {
+            let val = y_min + i as f64 * ((y_max - y_min) / 5.0);
+            format!("{:.0}", val).bold()
+        });
+
         let chart = Chart::new(datasets)
             // always show the legend (first constraint will always return true)
             .hidden_legend_constraints((
@@ -494,16 +535,8 @@ impl App {
             .y_axis(
                 Axis::default()
                     .style(Style::default().fg(Color::Gray))
-                    .labels([
-                        "25".bold(),
-                        "35".bold(),
-                        "45".bold(),
-                        "55".bold(),
-                        "65".bold(),
-                        "75".bold(),
-                        "85".bold(),
-                    ])
-                    .bounds([25.0, 85.0]),
+                    .labels(labels)
+                    .bounds([y_min, y_max]),
             );
 
         frame.render_widget(chart, area);
