@@ -14,8 +14,8 @@ use ratatui::{
     symbols,
     text::Span,
     widgets::{
-        Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, Padding, Row,
-        Table,
+        Axis, Block, Borders, Chart, Dataset, Gauge, GraphType, LegendPosition,
+        Padding, Row, Table,
     },
     DefaultTerminal, Frame,
 };
@@ -525,6 +525,7 @@ impl App {
                 Constraint::Min(0),
                 Constraint::Ratio(1, 4),
             ))
+            .legend_position(Some(LegendPosition::TopLeft))
             .block(Block::bordered())
             .x_axis(
                 Axis::default()
