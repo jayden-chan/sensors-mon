@@ -22,7 +22,7 @@ use ratatui::{
 
 const INTERVAL: u64 = 2000;
 const WINDOW_SIZE: u64 = (5 * 60) / (INTERVAL / 1000);
-const BOUNDS_PADDING: f64 = 3.0;
+const BOUNDS_PADDING: f64 = 2.0;
 const BOUNDS_MIN: f64 = 25.0;
 const BOUNDS_MAX: f64 = 90.0;
 
