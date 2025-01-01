@@ -490,6 +490,7 @@ impl App {
             .zip(self.coolant1.iter())
             .zip(self.gpu_temp.iter())
             .map(|v| v.0 .0 .1.min(v.0 .1 .1).min(v.1 .1))
+            .filter(|v| *v >= 0.01)
             .min_by(|a, b| {
                 if a <= b {
                     return Ordering::Less;
@@ -505,6 +506,7 @@ impl App {
             .zip(self.coolant1.iter())
             .zip(self.gpu_temp.iter())
             .map(|v| v.0 .0 .1.max(v.0 .1 .1).max(v.1 .1))
+            .filter(|v| *v >= 0.01)
             .max_by(|a, b| {
                 if a <= b {
                     return Ordering::Less;
