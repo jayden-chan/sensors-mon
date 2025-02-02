@@ -86,9 +86,9 @@ fn get_lmsensors_vals(sensors: &LMSensors) -> LmSensorsValues {
     let mut coolant2: f64 = 0.0;
 
     for chip in sensors.chip_iter(None) {
-        if let cname @ ("quadro-hid-3-1" | "k10temp-pci-00c3") =
-            chip.name().as_deref().unwrap_or("")
-        {
+        let cname = chip.name();
+        let cname = cname.as_deref().unwrap_or("");
+        if cname.starts_with("quadro-hid-") || cname == "k10temp-pci-00c3" {
             for feature in chip.feature_iter() {
                 let name = feature.name().unwrap_or(Ok("")).unwrap_or("");
 
@@ -104,12 +104,18 @@ fn get_lmsensors_vals(sensors: &LMSensors) -> LmSensorsValues {
                         if let Ok(lm_sensors::Value::TemperatureInput(t)) =
                             sub_feature.value()
                         {
-                            match (cname, fname) {
-                                ("quadro-hid-3-1", "temp1") => coolant1 = t,
-                                ("quadro-hid-3-1", "temp2") => coolant2 = t,
-                                ("k10temp-pci-00c3", "temp1") => tctl = t,
-                                ("k10temp-pci-00c3", "temp3") => tccd1 = t,
-                                _ => {}
+                            if cname.starts_with("quadro-hid-") {
+                                match fname {
+                                    "temp1" => coolant1 = t,
+                                    "temp2" => coolant2 = t,
+                                    _ => {}
+                                }
+                            } else {
+                                match fname {
+                                    "temp1" => tctl = t,
+                                    "temp3" => tccd1 = t,
+                                    _ => {}
+                                }
                             }
                         }
                     }
