@@ -412,7 +412,7 @@ impl App {
             .borders(Borders::LEFT | Borders::RIGHT)
             .padding(Padding::new(0, 0, 1, 0));
 
-        let c2 = self.coolant1.last().unwrap().1;
+        let c2 = self.coolant2;
         let b2 = Block::default()
             .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT)
             .title(COOLANT_2_LABEL);
