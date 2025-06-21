@@ -206,7 +206,9 @@ impl App {
 
     fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         let tick_rate = Duration::from_millis(INTERVAL);
+        self.on_tick();
         let mut last_tick = Instant::now();
+
         loop {
             terminal.draw(|frame| self.draw(frame))?;
 
