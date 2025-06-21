@@ -1,8 +1,3 @@
-use std::{
-    cmp::Ordering,
-    time::{Duration, Instant},
-};
-
 use anyhow::Result;
 use lm_sensors::{Initializer, LMSensors};
 use num_format::{Locale, ToFormattedString};
@@ -19,6 +14,13 @@ use ratatui::{
     },
     DefaultTerminal, Frame,
 };
+use std::{
+    cmp::Ordering,
+    fs::read_to_string,
+    path::PathBuf,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 
 const INTERVAL: u64 = 2000;
 const WINDOW_SIZE: u64 = (5 * 60) / (INTERVAL / 1000);
@@ -33,6 +35,106 @@ const CPU_CCD_LABEL: &str = "7800 X3D CCD";
 const COOLANT_1_LABEL: &str = "Coolant 1";
 const COOLANT_2_LABEL: &str = "Coolant 2";
 const GPU_LABEL: &str = "RTX 4070";
+
+fn notify(message: &str, critical: bool) {
+    let mut cmd = Command::new("notify-send");
+
+    if critical {
+        cmd.arg("-u");
+        cmd.arg("critical");
+    }
+
+    cmd.arg("sensors-mon");
+    cmd.arg(message);
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+
+    // we don't really have much choice but to ignore errors here,
+    // not like we can surface them with notify-send (lol) and we
+    // can't log them to stdout because this is a TUI app...
+    let mut child = match cmd.spawn() {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let _ = child.wait();
+}
+
+fn liquidctl(level: u8) {
+    let mut path = PathBuf::new();
+    path.push(
+        std::env::var("DOT")
+            .unwrap_or("/home/jayden/.config/dotfiles".to_string()),
+    );
+    path.push("scripts");
+    path.push("liquidctl.sh");
+
+    let mut cmd = Command::new("bash");
+
+    cmd.arg(path);
+    cmd.arg(level.to_string());
+    cmd.arg("--automated");
+
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::null());
+    cmd.stderr(Stdio::null());
+
+    let mut child = match cmd.spawn() {
+        Ok(s) => s,
+        Err(e) => {
+            notify(&format!("failed to spawn liquidctl.sh: {e}"), true);
+            return;
+        }
+    };
+
+    match child.wait() {
+        Ok(_) => {}
+        Err(e) => {
+            notify(&format!("failed to spawn liquidctl.sh: {e}"), true);
+        }
+    }
+}
+
+fn check_cooler_level(vals: &LmSensorsValues) {
+    if (vals.coolant1 - vals.coolant2).abs() > 0.5 {
+        notify(
+            &format!(
+                "Coolant levels differ by more than 0.5C ({} vs {})",
+                vals.coolant1, vals.coolant2
+            ),
+            true,
+        );
+    }
+
+    let c = vals.coolant1;
+    if c < 35.0 {
+        return;
+    }
+
+    let coolant_level = read_to_string("/tmp/liquidctl_level")
+        .ok()
+        .and_then(|v| v.parse::<u8>().ok())
+        .unwrap_or(0);
+
+    let changed_level = if c >= 40.0 && coolant_level < 5 {
+        liquidctl(5);
+        true
+    } else if c >= 37.0 && coolant_level < 4 {
+        liquidctl(4);
+        true
+    } else if coolant_level < 3 {
+        liquidctl(3);
+        true
+    } else {
+        false
+    };
+
+    if changed_level {
+        notify("WARNING: Cooling level was set automatically", true);
+    }
+}
 
 #[derive(Debug)]
 struct LmSensorsValues {
@@ -230,6 +332,8 @@ impl App {
     fn on_tick(&mut self) {
         let vals = get_lmsensors_vals(&self.sensors);
         let nvml_vals = get_nvml_values(&self.nvml);
+
+        check_cooler_level(&vals);
 
         self.window[0] += 1.0;
         self.window[1] += 1.0;
