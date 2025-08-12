@@ -25,7 +25,7 @@
         txtFilter = path: _type: builtins.match ".*txt$" path != null;
         txtOrCargo = path: type: (txtFilter path type) || (craneLib.filterCargoSources path type);
 
-        gccSemver = builtins.elemAt (builtins.match "^([[:digit:]]+\\.[[:digit:]]+\\.[[:digit:]]+)\\..*$" (pkgs.lib.getVersion pkgs.stdenv.cc.cc)) 0;
+        gccSemver = builtins.elemAt (builtins.match "^([[:digit:]]+\\.[[:digit:]]+\\.[[:digit:]]+)\\.?.*$" (pkgs.lib.getVersion pkgs.stdenv.cc.cc)) 0;
 
         bindgenShellHook = ''
           export BINDGEN_EXTRA_CLANG_ARGS="$(< ${pkgs.stdenv.cc}/nix-support/libc-crt1-cflags) \
