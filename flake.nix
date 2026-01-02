@@ -46,7 +46,7 @@
           env = {
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-            LMSENSORS_STATIC = "1";
+            LMSENSORS_STATIC = "0";
             LMSENSORS_LIB_DIR = "${pkgs.lm_sensors.out}/lib";
             LMSENSORS_INCLUDE_DIR = "${pkgs.lm_sensors.dev}/include/sensors";
           };
@@ -61,7 +61,7 @@
           buildInputs = [
             pkgs.llvmPackages.libclang
             pkgs.lm_sensors
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.libiconv ];
+          ];
         };
 
         sensors-mon = craneLib.buildPackage (
@@ -80,6 +80,7 @@
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
           packages = [
+            pkgs.cargo-edit
             pkgs.lm_sensors
             pkgs.rust-analyzer
             pkgs.rustfmt
@@ -88,7 +89,7 @@
           env = {
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
-            LMSENSORS_STATIC = "1";
+            LMSENSORS_STATIC = "0";
             LMSENSORS_LIB_DIR = "${pkgs.lm_sensors.out}/lib";
             LMSENSORS_INCLUDE_DIR = "${pkgs.lm_sensors.dev}/include/sensors";
           };
