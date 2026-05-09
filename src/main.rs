@@ -442,7 +442,7 @@ impl App {
     ) {
         let label = Span::styled(
             format!("{:.1}C", val),
-            Style::new().bold().fg(Color::Gray).bg(Color::Black),
+            Style::new().bold().fg(Color::Gray).bg(Color::Reset),
         );
 
         let color = if val < 34.0 {
@@ -465,7 +465,7 @@ impl App {
     fn render_gpu_watts_gauge(&self, val: f64, frame: &mut Frame, area: Rect) {
         let label = Span::styled(
             format!("{:.1}W / 200W", val),
-            Style::new().bold().fg(Color::Gray).bg(Color::Black),
+            Style::new().bold().fg(Color::Gray).bg(Color::Reset),
         );
 
         let g1 = Gauge::default()
@@ -494,7 +494,7 @@ impl App {
                 used.to_formatted_string(&Locale::en),
                 total.to_formatted_string(&Locale::en)
             ),
-            Style::new().bold().fg(Color::Gray).bg(Color::Black),
+            Style::new().bold().fg(Color::Gray).bg(Color::Reset),
         );
 
         let g1 = Gauge::default()
